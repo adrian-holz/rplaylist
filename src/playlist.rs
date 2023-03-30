@@ -1,20 +1,36 @@
 use std::fmt;
 use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
+
+use crate::config::RandomMode;
 
 #[derive(Debug, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub struct Playlist {
-    pub songs: Vec<Song>,
+    pub config: PlaylistConfig,
+    songs: Vec<Song>,
 }
 
 impl Playlist {
     pub fn new() -> Playlist {
-        Playlist { songs: vec![] }
+        Playlist { config: PlaylistConfig::new(), songs: vec![] }
+    }
+    pub fn songs(&self) -> &Vec<Song> {
+        &self.songs
+    }
+    pub fn add_song(&mut self, song: Song) -> Result<(), String> {
+        for s in self.songs.as_slice() {
+            if s.path == song.path {
+                return Err(format!("Song already exists: {}", s.path.display()));
+            }
+        }
+        self.songs.push(song);
+        Ok(())
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct Song {
     pub path: PathBuf,
@@ -33,7 +49,7 @@ impl fmt::Display for Song {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct SongConfig {
     pub amplify: f32,
@@ -41,6 +57,19 @@ pub struct SongConfig {
 
 impl SongConfig {
     pub fn new() -> SongConfig {
-        SongConfig { amplify: 0.2 }
+        SongConfig { amplify: 1.0 }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize)]
+pub struct PlaylistConfig {
+    pub amplify: f32,
+    pub random: RandomMode,
+}
+
+impl PlaylistConfig {
+    pub fn new() -> PlaylistConfig {
+        PlaylistConfig { amplify: 1.0, random: RandomMode::Off }
     }
 }

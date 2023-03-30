@@ -1,10 +1,14 @@
-use std::path::{PathBuf};
 use std::{error::Error, fmt, fs};
 use std::fs::File;
 use std::io::Write;
-use crate::config::{CmdConfig, CreateListConfig, PlayFileConfig};
-use crate::config::CmdConfig::{AddFile, CreateList, PlayFile, PlayList};
-use crate::playlist::{Playlist, Song};
+use std::path::PathBuf;
+
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
+use crate::config::{Cli, CreateConfig, EditConfig, PlayConfig, RandomMode};
+use crate::config::Commands::{Create, Edit, Play};
+use crate::playlist::{Playlist, PlaylistConfig, Song};
 
 pub mod config;
 mod audio;
@@ -40,54 +44,98 @@ impl fmt::Display for LibError {
     }
 }
 
-pub fn run(config: CmdConfig) -> Result<(), Box<dyn Error>> {
-    match config {
-        PlayFile(c) => play_playlist(&make_playlist(&c)?),
-        PlayList(c) => play_playlist(&load_playlist(&c.playlist)?),
-        CreateList(c) => save_playlist(&create_playlist(&c)?, &c.playlist),
-        AddFile(c) => {
-            let mut p = load_playlist(&c.playlist)?;
-            add_file_to_playlist(&mut p, &c.file)?;
-            save_playlist(&p, &c.playlist)?;
+pub fn run(config: Cli) -> Result<(), Box<dyn Error>> {
+    match config.command {
+        Play(c) => play(&c),
+        Create(c) => save_playlist(&create_playlist(&c)?, &PathBuf::from(&c.playlist)),
+        Edit(c) => {
+            let path = &PathBuf::from(&c.playlist);
+            let mut p = load_playlist(path)?;
+            edit_playlist(&mut p, c)?;
+            save_playlist(&p, path)?;
             Ok(())
         }
-        // _ => Err(Box::new(LibError::new(String::from("not implemented"))))
     }
 }
 
-fn play_playlist(playlist: &Playlist) -> Result<(), Box<dyn Error>> {
-    if playlist.songs.len() == 0 {
-        return Err(Box::new(LibError::new(String::from("Playlist is empty"))));
+fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), Box<dyn Error>> {
+    if let Some(f) = c.file {
+        add_file_to_playlist(p, &PathBuf::from(f))?;
     }
-    for song in playlist.songs.as_slice() {
-        println!("Now playing {}", song);
-        let file = File::open(&song.path)?;
-        audio::play(file, &song.config)?;
+    if let Some(a) = c.amplify {
+        p.config.amplify = a;
+    }
+    if let Some(r) = c.random {
+        p.config.random = r;
     }
     Ok(())
 }
 
-fn create_playlist(c: &CreateListConfig) -> Result<Playlist, Box<dyn Error>> {
+fn play(c: &PlayConfig) -> Result<(), Box<dyn Error>> {
+    let p = &PathBuf::from(&c.file);
+    let mut p = if c.playlist {
+        load_playlist(p)?
+    } else {
+        make_playlist_from_path(p)?
+    };
+    if let Some(a) = c.amplify {
+        p.config.amplify = a;
+    }
+    play_playlist(&mut p)
+}
+
+fn play_playlist(playlist: &mut Playlist) -> Result<(), Box<dyn Error>> {
+    if playlist.songs().len() == 0 {
+        return Err(Box::new(LibError::new(String::from("Playlist is empty"))));
+    }
+
+    let songs = playlist.songs();
+
+    let mut order: Vec<usize> = (0..songs.len()).collect();
+
+    match playlist.config.random {
+        RandomMode::Off => (),
+        _ => {
+            order.shuffle(&mut thread_rng());
+        }
+    }
+
+    for song_index in order {
+        play_song(&songs[song_index], &playlist.config)?;
+    }
+
+    Ok(())
+}
+
+fn play_song(song: &Song, c: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
+    println!("Now playing: {}", song);
+    let file = File::open(&song.path)?;
+    audio::play(file, &song.config, c)
+}
+
+fn create_playlist(c: &CreateConfig) -> Result<Playlist, Box<dyn Error>> {
     if let Some(f) = &c.file {
-        make_playlist_from_path(f)
+        make_playlist_from_path(&PathBuf::from(f))
     } else {
         Ok(Playlist::new())
     }
 }
 
-fn make_playlist(config: &PlayFileConfig) -> Result<Playlist, Box<dyn Error>> {
-    make_playlist_from_path(&config.file)
-}
-
 fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), Box<dyn Error>> {
-    let mut p = make_playlist_from_path(file)?;
-    playlist.songs.append(&mut p.songs);
+    let p = make_playlist_from_path(file)?;
+    for s in p.songs() {
+        if let Err(e) = playlist.add_song(s.clone()) {
+            eprintln!("{}", e);
+        }
+    }
     Ok(())
 }
 
 fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
     if path.is_file() {
-        Ok(Playlist::new())
+        let mut p = Playlist::new();
+        p.add_song(Song::new(path.clone())).expect("Can always add a Song to an empty playlist");
+        Ok(p)
     } else if path.is_dir() {
         let mut playlist = Playlist::new();
 
@@ -95,7 +143,9 @@ fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
         for path in paths {
             let p = path?.path();
             if p.is_file() {
-                playlist.songs.push(Song::new(p));
+                if let Err(e) = playlist.add_song(Song::new(p)) {
+                    eprintln!("{}", e);
+                }
             }
         }
 
@@ -117,7 +167,6 @@ fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), Box<dyn Erro
 fn load_playlist(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
     let data = fs::read_to_string(path)?;
     let p: Playlist = serde_json::from_str(data.as_str())?;
-
     Ok(p)
 }
 
@@ -135,10 +184,55 @@ mod tests {
 
     #[test]
     fn valid_de_serialize_empty_list() {
-        let path = &PathBuf::from("../test.playlist.json");
+        let path = &PathBuf::from("test.playlist");
         let p1 = Playlist::new();
         save_playlist(&p1, path).expect("Saving in working directory should work");
         let p2 = load_playlist(path).expect("Loading saved playlist should work");
         assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn edit_no_change() {
+        let c = EditConfig { amplify: None, file: None, random: None, playlist: String::from("") };
+
+        let mut p1 = Playlist::new();
+        edit_playlist(&mut p1, c).expect("Editing should give no error");
+
+        assert_eq!(p1, Playlist::new())
+    }
+
+    #[test]
+    fn valid_edit_amplify() {
+        let c = EditConfig { amplify: Some(10.0), file: None, random: None, playlist: String::from("") };
+
+        let mut p1 = Playlist::new();
+        edit_playlist(&mut p1, c).expect("Editing should give no error");
+
+        let mut p2 = Playlist::new();
+        p2.config.amplify = 10.0;
+        assert_eq!(p1, p2)
+    }
+
+    #[test]
+    fn valid_edit_add_file() {
+        let c = EditConfig { amplify: None, file: Some(String::from("test_data/test.mp3")), random: None, playlist: String::from("") };
+
+        let mut p1 = Playlist::new();
+        edit_playlist(&mut p1, c).expect("Editing should give no error");
+
+        let mut p2 = Playlist::new();
+        p2.add_song(Song::new(PathBuf::from("test_data/test.mp3"))).expect("Can always add a Song to an empty playlist");
+        assert_eq!(p1, p2)
+    }
+
+    #[test]
+    fn invalid_edit_add_file() -> Result<(), &'static str> {
+        let c = EditConfig { amplify: None, file: Some(String::from("invalid.mp3")), random: None, playlist: String::from("") };
+
+        let mut p1 = Playlist::new();
+        match edit_playlist(&mut p1, c) {
+            Err(_) => Ok(()),
+            Ok(_) => Err("Invalid file should give error.")
+        }
     }
 }
