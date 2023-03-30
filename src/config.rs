@@ -15,9 +15,7 @@ pub struct Cli {
 pub enum Commands {
     /// Play sound files or playlist
     Play(PlayConfig),
-    /// Create a new playlist
-    Create(CreateConfig),
-    /// Edit an existing playlist
+    /// Edit or create a playlist
     Edit(EditConfig),
 }
 
@@ -30,30 +28,27 @@ pub struct PlayConfig {
     /// Given file is a single playlist
     pub playlist: bool,
     #[arg(long)]
+    /// Play songs in a loop
+    pub repeat: bool,
+    #[arg(long)]
     /// Overwrites playlist config
     pub amplify: Option<f32>,
 }
 
-#[derive(Debug, PartialEq)]
-#[derive(Args)]
-pub struct CreateConfig {
-    pub playlist: String,
-    #[arg(short, long)]
-    /// Sound file or directory of sound files to add to playlist
-    pub file: Option<String>,
-}
 
 #[derive(Debug, PartialEq)]
 #[derive(Args)]
 pub struct EditConfig {
+    /// Playlist to edit. Will create if not existing.
     pub playlist: String,
     #[arg(long)]
-    /// Sound file or directory of sound files to add to playlist
+    /// Sound file or directory of sound files to add to playlist.
     pub file: Option<String>,
     #[arg(long)]
-    /// Acts multiplicative to the amplification of each song
+    /// Acts multiplicative to the amplification of each song.
     pub amplify: Option<f32>,
     #[arg(long, value_enum)]
+    /// Unless songs are repeating 'on' and 'shuffle' act the same.
     pub random: Option<RandomMode>,
 }
 

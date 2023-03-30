@@ -3,11 +3,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use rand::{Rng, thread_rng};
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 
-use crate::config::{Cli, CreateConfig, EditConfig, PlayConfig, RandomMode};
-use crate::config::Commands::{Create, Edit, Play};
+use crate::config::{Cli, EditConfig, PlayConfig, RandomMode};
+use crate::config::Commands::{Edit, Play};
 use crate::playlist::{Playlist, PlaylistConfig, Song};
 
 pub mod config;
@@ -47,10 +47,9 @@ impl fmt::Display for LibError {
 pub fn run(config: Cli) -> Result<(), Box<dyn Error>> {
     match config.command {
         Play(c) => play(&c),
-        Create(c) => save_playlist(&create_playlist(&c)?, &PathBuf::from(&c.playlist)),
         Edit(c) => {
             let path = &PathBuf::from(&c.playlist);
-            let mut p = load_playlist(path)?;
+            let mut p = load_playlist(path).unwrap_or_else(|_| Playlist::new());
             edit_playlist(&mut p, c)?;
             save_playlist(&p, path)?;
             Ok(())
@@ -81,23 +80,31 @@ fn play(c: &PlayConfig) -> Result<(), Box<dyn Error>> {
     if let Some(a) = c.amplify {
         p.config.amplify = a;
     }
-    play_playlist(&mut p)
-}
-
-fn play_playlist(playlist: &mut Playlist) -> Result<(), Box<dyn Error>> {
-    if playlist.songs().len() == 0 {
+    if p.songs().len() == 0 {
         return Err(Box::new(LibError::new(String::from("Playlist is empty"))));
     }
 
+    if !c.repeat {
+        play_playlist(&p)
+    } else {
+        loop {
+            if p.config.random == RandomMode::True {
+                play_true_random(&p)?;
+            } else {
+                play_playlist(&p)?;
+            }
+        }
+    }
+}
+
+fn play_playlist(playlist: &Playlist) -> Result<(), Box<dyn Error>> {
     let songs = playlist.songs();
 
     let mut order: Vec<usize> = (0..songs.len()).collect();
 
     match playlist.config.random {
         RandomMode::Off => (),
-        _ => {
-            order.shuffle(&mut thread_rng());
-        }
+        _ => order.shuffle(&mut thread_rng()),
     }
 
     for song_index in order {
@@ -107,18 +114,15 @@ fn play_playlist(playlist: &mut Playlist) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn play_true_random(p: &Playlist) -> Result<(), Box<dyn Error>> {
+    let idx = thread_rng().gen_range(0..p.songs().len());
+    play_song(&p.songs()[idx], &p.config)
+}
+
 fn play_song(song: &Song, c: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
     println!("Now playing: {}", song);
     let file = File::open(&song.path)?;
     audio::play(file, &song.config, c)
-}
-
-fn create_playlist(c: &CreateConfig) -> Result<Playlist, Box<dyn Error>> {
-    if let Some(f) = &c.file {
-        make_playlist_from_path(&PathBuf::from(f))
-    } else {
-        Ok(Playlist::new())
-    }
 }
 
 fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), Box<dyn Error>> {
