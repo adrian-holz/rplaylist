@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fmt::Formatter;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,18 @@ impl Playlist {
     }
 }
 
+impl fmt::Display for Playlist {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "  Settings:")?;
+        write!(f, "\n{}", self.config)?;
+        write!(f, "\n  Songs:")?;
+        for s in self.songs.iter() {
+            write!(f, "\n{}", s)?
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct Song {
@@ -44,8 +57,14 @@ impl Song {
 }
 
 impl fmt::Display for Song {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.path.display())
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if let Some(s) = self.path.file_name() {
+            if let Some(s) = s.to_str() {
+                return write!(f, "{:}", s);
+            }
+        }
+        // If we can't print only the file name, just print everything
+        write!(f, "{:}", self.path.display())
     }
 }
 
@@ -71,5 +90,11 @@ pub struct PlaylistConfig {
 impl PlaylistConfig {
     pub fn new() -> PlaylistConfig {
         PlaylistConfig { amplify: 1.0, random: RandomMode::Off }
+    }
+}
+
+impl fmt::Display for PlaylistConfig {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "Amplify: {}; Random mode: {}", self.amplify, self.random)
     }
 }

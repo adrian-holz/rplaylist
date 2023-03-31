@@ -7,7 +7,7 @@ use rand::{Rng, thread_rng};
 use rand::seq::SliceRandom;
 
 use crate::config::{Cli, EditConfig, PlayConfig, RandomMode};
-use crate::config::Commands::{Edit, Play};
+use crate::config::Commands::{Display, Edit, Play};
 use crate::playlist::{Playlist, PlaylistConfig, Song};
 
 pub mod config;
@@ -52,6 +52,10 @@ pub fn run(config: Cli) -> Result<(), Box<dyn Error>> {
             let mut p = load_playlist(path).unwrap_or_else(|_| Playlist::new());
             edit_playlist(&mut p, c)?;
             save_playlist(&p, path)?;
+            Ok(())
+        }
+        Display(c) => {
+            println!("{}", load_playlist(&PathBuf::from(&c.playlist))?);
             Ok(())
         }
     }

@@ -1,3 +1,6 @@
+use std::fmt;
+use std::fmt::Formatter;
+
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
 use serde::{Deserialize, Serialize};
@@ -10,16 +13,15 @@ pub struct Cli {
     pub command: Commands,
 }
 
-#[derive(Debug, PartialEq)]
 #[derive(Subcommand)]
 pub enum Commands {
     /// Play sound files or playlist
     Play(PlayConfig),
     /// Edit or create a playlist
     Edit(EditConfig),
+    Display(DisplayConfig),
 }
 
-#[derive(Debug, PartialEq)]
 #[derive(Args)]
 pub struct PlayConfig {
     /// Sound file or directory of sound files
@@ -36,7 +38,6 @@ pub struct PlayConfig {
 }
 
 
-#[derive(Debug, PartialEq)]
 #[derive(Args)]
 pub struct EditConfig {
     /// Playlist to edit. Will create if not existing.
@@ -52,8 +53,12 @@ pub struct EditConfig {
     pub random: Option<RandomMode>,
 }
 
-#[derive(Debug, PartialEq)]
-#[derive(Clone)]
+#[derive(Args)]
+pub struct DisplayConfig {
+    pub playlist: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub enum RandomMode {
     Off,
@@ -72,5 +77,15 @@ impl ValueEnum for RandomMode {
             RandomMode::True => "on",
             RandomMode::Shuffle => "shuffle",
         }))
+    }
+}
+
+impl fmt::Display for RandomMode {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            RandomMode::Off => write!(f, "OFF"),
+            RandomMode::True => write!(f, "TRUE"),
+            RandomMode::Shuffle => write!(f, "SHUFFLE"),
+        }
     }
 }
