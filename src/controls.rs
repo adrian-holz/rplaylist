@@ -1,8 +1,9 @@
-use std::io;
+use std::{io, thread};
 use std::io::{Stdout, Write};
 use std::path::PathBuf;
-use std::process::exit;
-use std::sync::Mutex;
+use std::sync::{Arc, mpsc, Mutex};
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::JoinHandle;
 
 use rodio::Sink;
 use termion::event::Key;
@@ -13,48 +14,99 @@ use crate::{audio, file};
 use crate::playlist::Playlist;
 
 pub struct PlayState {
-    pub path: PathBuf,
+    pub save_path: Option<PathBuf>,
     pub playlist: Playlist,
     pub song_idx: usize,
+    stopping: bool,
 }
 
-pub fn song_controls(sink: &Sink, p: &Mutex<PlayState>) {
-    let stdin = io::stdin();
+impl PlayState {
+    pub fn new(save_path: Option<PathBuf>, playlist: Playlist) -> Self {
+        PlayState { save_path, playlist, song_idx: 0, stopping: false }
+    }
+    pub fn stopped(&self) -> bool {
+        self.stopping
+    }
+}
+
+pub enum ControlMessage {
+    StreamDone,
+    StreamUpdate,
+    KeyInput(Key),
+}
+
+pub fn start(sink: &Arc<Sink>, state: &Arc<Mutex<PlayState>>) -> (JoinHandle<()>, Sender<ControlMessage>) {
+    let sink = sink.clone();
+    let state = state.clone();
+    let (tx, rx) = mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        run(&sink, &state, rx);
+    });
+
+    let tx2 = tx.clone();
+    thread::spawn(move || {
+        read_keys(tx2);
+    });
+
+    (handle, tx)
+}
+
+
+pub fn run(sink: &Sink, state: &Mutex<PlayState>, rx: Receiver<ControlMessage>) {
     //setting up stdout and going into raw mode
     let mut stdout = io::stdout().into_raw_mode().unwrap();
 
     print_help(&mut stdout).unwrap();
 
-    //detecting keydown events
-    for c in stdin.keys() {
+    for c in rx.into_iter() {
         //clearing the screen and going to top left corner
-        write!(
-            stdout,
-            "{}{}",
-            termion::cursor::Goto(1, 1),
-            termion::clear::All
-        )
-            .unwrap();
+        write!(stdout,
+               "{}{}",
+               termion::cursor::Goto(1, 1),
+               termion::clear::All
+        ).unwrap();
 
-        match c.unwrap() {
-            Key::Char('q') => exit(0), // TODO: clean shutdown
-            Key::Char('h') => print_help(&mut stdout).unwrap(),
-            Key::Char(' ') => if sink.is_paused() { sink.play() } else { sink.pause() },
-            Key::Up => adjust_volume(sink, &mut p.lock().unwrap(), true),
-            Key::Down => adjust_volume(sink, &mut p.lock().unwrap(), false),
-            Key::Char('i') => println!("{}", p.lock().unwrap().song_idx),
-            Key::Char('s') => {
-                let state = p.lock().unwrap();
-                if let Err(e) = file::save_playlist(&state.playlist, &state.path) {
-                    println!("Unable to save to {:?}, error: {}", &state.path, e)
-                }
+        match c {
+            ControlMessage::StreamDone => break,
+            ControlMessage::KeyInput(k) => eval_keys(sink, state, &mut stdout, k),
+            ControlMessage::StreamUpdate => {
+                let state = state.lock().unwrap();
+                let index = state.song_idx;
+                println!("Now playing {}", state.playlist.song(index).unwrap())
             }
-            _ => (),
         }
 
         stdout.flush().unwrap();
     }
 }
+
+fn eval_keys(sink: &Sink, state: &Mutex<PlayState>, stdout: &mut RawTerminal<Stdout>, key: Key) {
+    match key {
+        Key::Char('q') => {
+            let mut state = state.lock().unwrap();
+            state.stopping = true;
+            sink.skip_one(); // We know that there is always only one sound queued
+        }
+        Key::Char('h') => print_help(stdout).unwrap(),
+        Key::Char(' ') => if sink.is_paused() { sink.play() } else { sink.pause() },
+        Key::Up => adjust_volume(sink, &mut state.lock().unwrap(), true),
+        Key::Down => adjust_volume(sink, &mut state.lock().unwrap(), false),
+        Key::Char('i') => println!("{}", state.lock().unwrap().song_idx),
+        Key::Char('s') => {
+            let state = state.lock().unwrap();
+            if let Some(path) = &state.save_path {
+                if let Err(e) = file::save_playlist(&state.playlist, path) {
+                    println!("Unable to save to {:?}, error: {}", &state.save_path, e)
+                }
+            } else {
+                println!("Unable to save: Direct play mode.")
+            }
+        }
+        _ => (),
+    }
+}
+
 
 ///Printing help message, clearing the screen and going to left top corner with the cursor
 fn print_help(stdout: &mut RawTerminal<Stdout>) -> io::Result<()> {
@@ -87,4 +139,16 @@ fn calc_new_volume(mut vol: f32, up: bool) -> f32 {
     }
     println!("new: {}", vol);
     vol
+}
+
+fn read_keys(rx: Sender<ControlMessage>) {
+    let stdin = io::stdin();
+
+    //detecting keydown events
+    for c in stdin.keys() {
+        match c {
+            Ok(k) => rx.send(ControlMessage::KeyInput(k)).unwrap(),
+            Err(e) => println!("{}", e), // TODO: better error handling
+        }
+    }
 }

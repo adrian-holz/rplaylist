@@ -1,16 +1,16 @@
-use std::{error::Error, fmt, thread};
+use std::{error::Error, fmt};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
 
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rodio::{OutputStream, Sink};
 
-use crate::config::{Cli, EditConfig, PlayConfig, RandomMode};
-use crate::config::Commands::{Display, Edit, Play};
-use crate::controls::PlayState;
-use crate::playlist::{Playlist, PlaylistConfig, Song};
+use crate::config::{Cli, Command, EditConfig, PlayConfig, RandomMode};
+use crate::controls::{ControlMessage, PlayState};
+use crate::playlist::Playlist;
 
 pub mod config;
 mod audio;
@@ -19,17 +19,27 @@ mod controls;
 mod file;
 
 #[derive(Debug)]
-struct HandledError {}
+///Error was handled, we just need to display it now
+pub struct HandledError {
+    msg: String,
+}
+
+impl HandledError {
+    fn new(msg: String) -> HandledError {
+        HandledError { msg }
+    }
+}
 
 impl Error for HandledError {}
 
 impl fmt::Display for HandledError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Error was handled")
+        write!(f, "{}", self.msg)
     }
 }
 
 #[derive(Debug)]
+//TODO: Do we need this?
 struct LibError {
     msg: String,
 }
@@ -50,15 +60,15 @@ impl fmt::Display for LibError {
 
 pub fn run(config: Cli) -> Result<(), Box<dyn Error>> {
     match config.command {
-        Play(c) => play(&c),
-        Edit(c) => {
+        Command::Play(c) => play(&c),
+        Command::Edit(c) => {
             let path = &PathBuf::from(&c.playlist);
             let mut p = file::load_playlist(path).unwrap_or_else(|_| Playlist::new());
             edit_playlist(&mut p, c)?;
             file::save_playlist(&p, path)?;
             Ok(())
         }
-        Display(c) => {
+        Command::Display(c) => {
             println!("{}", file::load_playlist(&PathBuf::from(&c.playlist))?);
             Ok(())
         }
@@ -79,8 +89,31 @@ fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), Box<dyn Error>> 
 }
 
 fn play(c: &PlayConfig) -> Result<(), Box<dyn Error>> {
+    let state = prepare_play(c)?;
+    // These need to be created here so they won't be dropped until we are done playing,
+    // because Sink does not take ownership.
+    let (_stream, stream_handle) = OutputStream::try_default()?;
+    let sink = Sink::try_new(&stream_handle)?;
+
+    let sink = Arc::new(sink);
+    let state = Arc::new(Mutex::new(state));
+
+    let (handle, tx) = controls::start(&sink, &state);
+
+    let result = play_playlist(&tx, &state, &sink, c.repeat);
+
+    // Tell the controls we are done and wait for it to clean up.
+    tx.send(ControlMessage::StreamDone)?;
+    handle.join().unwrap();
+
+    result
+}
+
+fn prepare_play(c: &PlayConfig) -> Result<PlayState, Box<dyn Error>> {
     let path = PathBuf::from(&c.file);
+    let mut save_path = None;
     let mut p = if c.playlist {
+        save_path = Some(path.clone());
         file::load_playlist(&path)?
     } else {
         file::make_playlist_from_path(&path)?
@@ -91,71 +124,67 @@ fn play(c: &PlayConfig) -> Result<(), Box<dyn Error>> {
     if p.song_count() == 0 {
         return Err(Box::new(LibError::new(String::from("Playlist is empty"))));
     }
+    Ok(PlayState::new(save_path, p))
+}
 
-    let (_stream, stream_handle) = OutputStream::try_default()?;
-    let sink = Arc::new(Sink::try_new(&stream_handle)?);
-    let sink_ctrl = Arc::clone(&sink);
-
-    let p = Arc::new(Mutex::new(PlayState { path, playlist: p, song_idx: 0 }));
-    let p_ctrl = Arc::clone(&p);
-
-    thread::spawn(move || controls::song_controls(&sink_ctrl, &p_ctrl));
-
-    if !c.repeat {
-        play_playlist(&p, &sink)
+fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink, repeat: bool) -> Result<(), Box<dyn Error>> {
+    if !repeat {
+        play_normal(tx, state, sink)
     } else {
-        loop {
-            if p.lock().unwrap().playlist.config.random == RandomMode::True {
-                play_true_random(&p, &sink)?;
+        while !state.lock().unwrap().stopped() {
+            if state.lock().unwrap().playlist.config.random == RandomMode::True {
+                play_true_random(tx, state, sink)?;
             } else {
-                play_playlist(&p, &sink)?;
+                play_normal(tx, state, sink)?;
             }
         }
+        Ok(())
     }
 }
 
-fn play_playlist(state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
-    let p = &state.lock().unwrap().playlist;
+fn play_normal(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
+    let order = {
+        let playlist = &state.lock().unwrap().playlist;
+        let mut order: Vec<usize> = (0..playlist.song_count()).collect();
 
-    let mut order: Vec<usize> = (0..p.song_count()).collect();
+        match playlist.config.random {
+            RandomMode::Off => (),
+            _ => order.shuffle(&mut rand::thread_rng()),
+        };
 
-    match state.lock().unwrap().playlist.config.random {
-        RandomMode::Off => (),
-        _ => order.shuffle(&mut rand::thread_rng()),
+        order
     };
 
     for song_index in order {
-        let song;
-        let config;
-        {
-            let mut state = state.lock().unwrap();
-            state.song_idx = song_index;
-            song = p.song(song_index).unwrap();
-            config = state.playlist.config.clone();
+        if state.lock().unwrap().stopped() {
+            break;
         }
-        play_song(song, sink, &config)?;
+        play_song(&tx, state, sink, song_index)?;
     }
 
     Ok(())
 }
 
-fn play_true_random(state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
+fn play_true_random(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
+    let index = {
+        let state = state.lock().unwrap();
+        rand::thread_rng().gen_range(0..state.playlist.song_count())
+    };
+    play_song(tx, state, sink, index)
+}
+
+fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink, index: usize) -> Result<(), Box<dyn Error>> {
     let song;
     let config;
     {
         let mut state = state.lock().unwrap();
-        let idx = rand::thread_rng().gen_range(0..state.playlist.song_count());
-        state.song_idx = idx;
-        song = state.playlist.song(idx).unwrap().clone();
+        state.song_idx = index;
+        song = state.playlist.song(index).unwrap().clone();
         config = state.playlist.config.clone();
     }
-    play_song(&song, sink, &config)
-}
-
-fn play_song(song: &Song, sink: &Sink, c: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
-    println!("Now playing: {}", song);
+    tx.send(ControlMessage::StreamUpdate).unwrap();
     let file = File::open(&song.path)?;
-    audio::play(file, sink, &song.config, c)?;
+    audio::play(file, sink, &song.config, &config)?;
     Ok(())
 }
 
@@ -172,6 +201,8 @@ fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), B
 
 #[cfg(test)]
 mod tests {
+    use crate::playlist::Song;
+
     use super::*;
 
     #[test]

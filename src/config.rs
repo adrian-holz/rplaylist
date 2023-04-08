@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 #[command(propagate_version = true)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Command,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum Command {
     /// Play sound files or playlist
     Play(PlayConfig),
     /// Edit or create a playlist
