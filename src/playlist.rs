@@ -17,8 +17,14 @@ impl Playlist {
     pub fn new() -> Playlist {
         Playlist { config: PlaylistConfig::new(), songs: vec![] }
     }
-    pub fn songs(&self) -> &Vec<Song> {
-        &self.songs
+    pub fn song(&self, index: usize) -> Option<&Song> {
+        self.songs.get(index)
+    }
+    pub fn song_mut(&mut self, index: usize) -> Option<&mut Song> {
+        self.songs.get_mut(index)
+    }
+    pub fn song_count(&self) -> usize {
+        self.songs.len()
     }
     pub fn add_song(&mut self, song: Song) -> Result<(), String> {
         for s in self.songs.as_slice() {
@@ -52,7 +58,7 @@ pub struct Song {
 
 impl Song {
     pub fn new(path: PathBuf) -> Song {
-        return Song { path, config: SongConfig::new() };
+        Song { path, config: SongConfig::new() }
     }
 }
 
@@ -71,30 +77,30 @@ impl fmt::Display for Song {
 #[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct SongConfig {
-    pub amplify: f32,
+    pub volume: f32,
 }
 
 impl SongConfig {
     pub fn new() -> SongConfig {
-        SongConfig { amplify: 1.0 }
+        SongConfig { volume: 1.0 }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct PlaylistConfig {
-    pub amplify: f32,
+    pub volume: f32,
     pub random: RandomMode,
 }
 
 impl PlaylistConfig {
     pub fn new() -> PlaylistConfig {
-        PlaylistConfig { amplify: 1.0, random: RandomMode::Off }
+        PlaylistConfig { volume: 1.0, random: RandomMode::Off }
     }
 }
 
 impl fmt::Display for PlaylistConfig {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Amplify: {}; Random mode: {}", self.amplify, self.random)
+        write!(f, "Amplify: {}; Random mode: {}", self.volume, self.random)
     }
 }

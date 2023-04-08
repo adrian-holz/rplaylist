@@ -2,32 +2,29 @@ use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, Sink};
 use rodio::decoder::DecoderError;
 
 use crate::playlist::{PlaylistConfig, SongConfig};
 
-pub fn play(file: File, song_config: &SongConfig, global_config: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
+pub fn play(file: File, sink: &Sink, song_config: &SongConfig, global_config: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
     let buf = BufReader::new(file);
-
-    let (_stream, stream_handle) = OutputStream::try_default()?;
-    let sink = Sink::try_new(&stream_handle)?;
 
     let source = Decoder::new(buf);
 
-    if let Err(e) = &source {
-        if let DecoderError::UnrecognizedFormat = e {
-            eprintln!("Unrecognized Format, skipping.");
-            return Ok(());
-        }
+    if let Err(DecoderError::UnrecognizedFormat) = &source {
+        eprintln!("Unrecognized Format, skipping.");
+        return Ok(());
     }
 
     let source = source?;
-
-    let source = source.amplify(song_config.amplify * global_config.amplify);
-
+    config_sink(sink, song_config, global_config);
     sink.append(source);
     sink.sleep_until_end();
 
-    return Ok(());
+    Ok(())
+}
+
+pub fn config_sink(sink: &Sink, song_config: &SongConfig, global_config: &PlaylistConfig) {
+    sink.set_volume(song_config.volume * global_config.volume);
 }

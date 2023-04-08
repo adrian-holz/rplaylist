@@ -1,18 +1,22 @@
-use std::{error::Error, fmt, fs};
+use std::{error::Error, fmt, thread};
 use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use rand::seq::SliceRandom;
+use rodio::{OutputStream, Sink};
 
 use crate::config::{Cli, EditConfig, PlayConfig, RandomMode};
 use crate::config::Commands::{Display, Edit, Play};
+use crate::controls::PlayState;
 use crate::playlist::{Playlist, PlaylistConfig, Song};
 
 pub mod config;
 mod audio;
 mod playlist;
+mod controls;
+mod file;
 
 #[derive(Debug)]
 struct HandledError {}
@@ -49,13 +53,13 @@ pub fn run(config: Cli) -> Result<(), Box<dyn Error>> {
         Play(c) => play(&c),
         Edit(c) => {
             let path = &PathBuf::from(&c.playlist);
-            let mut p = load_playlist(path).unwrap_or_else(|_| Playlist::new());
+            let mut p = file::load_playlist(path).unwrap_or_else(|_| Playlist::new());
             edit_playlist(&mut p, c)?;
-            save_playlist(&p, path)?;
+            file::save_playlist(&p, path)?;
             Ok(())
         }
         Display(c) => {
-            println!("{}", load_playlist(&PathBuf::from(&c.playlist))?);
+            println!("{}", file::load_playlist(&PathBuf::from(&c.playlist))?);
             Ok(())
         }
     }
@@ -65,8 +69,8 @@ fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), Box<dyn Error>> 
     if let Some(f) = c.file {
         add_file_to_playlist(p, &PathBuf::from(f))?;
     }
-    if let Some(a) = c.amplify {
-        p.config.amplify = a;
+    if let Some(a) = c.volume {
+        p.config.volume = a;
     }
     if let Some(r) = c.random {
         p.config.random = r;
@@ -75,107 +79,94 @@ fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), Box<dyn Error>> 
 }
 
 fn play(c: &PlayConfig) -> Result<(), Box<dyn Error>> {
-    let p = &PathBuf::from(&c.file);
+    let path = PathBuf::from(&c.file);
     let mut p = if c.playlist {
-        load_playlist(p)?
+        file::load_playlist(&path)?
     } else {
-        make_playlist_from_path(p)?
+        file::make_playlist_from_path(&path)?
     };
-    if let Some(a) = c.amplify {
-        p.config.amplify = a;
+    if let Some(a) = c.volume {
+        p.config.volume = a;
     }
-    if p.songs().len() == 0 {
+    if p.song_count() == 0 {
         return Err(Box::new(LibError::new(String::from("Playlist is empty"))));
     }
 
+    let (_stream, stream_handle) = OutputStream::try_default()?;
+    let sink = Arc::new(Sink::try_new(&stream_handle)?);
+    let sink_ctrl = Arc::clone(&sink);
+
+    let p = Arc::new(Mutex::new(PlayState { path, playlist: p, song_idx: 0 }));
+    let p_ctrl = Arc::clone(&p);
+
+    thread::spawn(move || controls::song_controls(&sink_ctrl, &p_ctrl));
+
     if !c.repeat {
-        play_playlist(&p)
+        play_playlist(&p, &sink)
     } else {
         loop {
-            if p.config.random == RandomMode::True {
-                play_true_random(&p)?;
+            if p.lock().unwrap().playlist.config.random == RandomMode::True {
+                play_true_random(&p, &sink)?;
             } else {
-                play_playlist(&p)?;
+                play_playlist(&p, &sink)?;
             }
         }
     }
 }
 
-fn play_playlist(playlist: &Playlist) -> Result<(), Box<dyn Error>> {
-    let songs = playlist.songs();
+fn play_playlist(state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
+    let p = &state.lock().unwrap().playlist;
 
-    let mut order: Vec<usize> = (0..songs.len()).collect();
+    let mut order: Vec<usize> = (0..p.song_count()).collect();
 
-    match playlist.config.random {
+    match state.lock().unwrap().playlist.config.random {
         RandomMode::Off => (),
-        _ => order.shuffle(&mut thread_rng()),
-    }
+        _ => order.shuffle(&mut rand::thread_rng()),
+    };
 
     for song_index in order {
-        play_song(&songs[song_index], &playlist.config)?;
+        let song;
+        let config;
+        {
+            let mut state = state.lock().unwrap();
+            state.song_idx = song_index;
+            song = p.song(song_index).unwrap();
+            config = state.playlist.config.clone();
+        }
+        play_song(song, sink, &config)?;
     }
 
     Ok(())
 }
 
-fn play_true_random(p: &Playlist) -> Result<(), Box<dyn Error>> {
-    let idx = thread_rng().gen_range(0..p.songs().len());
-    play_song(&p.songs()[idx], &p.config)
+fn play_true_random(state: &Mutex<PlayState>, sink: &Sink) -> Result<(), Box<dyn Error>> {
+    let song;
+    let config;
+    {
+        let mut state = state.lock().unwrap();
+        let idx = rand::thread_rng().gen_range(0..state.playlist.song_count());
+        state.song_idx = idx;
+        song = state.playlist.song(idx).unwrap().clone();
+        config = state.playlist.config.clone();
+    }
+    play_song(&song, sink, &config)
 }
 
-fn play_song(song: &Song, c: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
+fn play_song(song: &Song, sink: &Sink, c: &PlaylistConfig) -> Result<(), Box<dyn Error>> {
     println!("Now playing: {}", song);
     let file = File::open(&song.path)?;
-    audio::play(file, &song.config, c)
+    audio::play(file, sink, &song.config, c)?;
+    Ok(())
 }
 
 fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), Box<dyn Error>> {
-    let p = make_playlist_from_path(file)?;
-    for s in p.songs() {
-        if let Err(e) = playlist.add_song(s.clone()) {
+    let songs = file::load_songs_from_directory(file)?;
+    for s in songs {
+        if let Err(e) = playlist.add_song(s) {
             eprintln!("{}", e);
         }
     }
     Ok(())
-}
-
-fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
-    if path.is_file() {
-        let mut p = Playlist::new();
-        p.add_song(Song::new(path.clone())).expect("Can always add a Song to an empty playlist");
-        Ok(p)
-    } else if path.is_dir() {
-        let mut playlist = Playlist::new();
-
-        let paths = path.read_dir()?;
-        for path in paths {
-            let p = path?.path();
-            if p.is_file() {
-                if let Err(e) = playlist.add_song(Song::new(p)) {
-                    eprintln!("{}", e);
-                }
-            }
-        }
-
-        Ok(playlist)
-    } else {
-        Err(Box::new(LibError::new(String::from("Expected file or directory"))))
-    }
-}
-
-fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-    let playlist = serde_json::to_string(playlist)?;
-
-    let mut output = File::create(path)?;
-    write!(output, "{}", playlist)?;
-
-    Ok(())
-}
-
-fn load_playlist(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
-    let data = fs::read_to_string(path)?;
-    let p: Playlist = serde_json::from_str(data.as_str())?;
-    Ok(p)
 }
 
 
@@ -184,24 +175,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn valid_deserialize_empty_list() {
-        let path = &PathBuf::from("test_data/empty.playlist");
-        let p = load_playlist(path).expect("Loading playlist from test_data/ should work");
-        assert_eq!(p, Playlist::new());
-    }
-
-    #[test]
-    fn valid_de_serialize_empty_list() {
-        let path = &PathBuf::from("test.playlist");
-        let p1 = Playlist::new();
-        save_playlist(&p1, path).expect("Saving in working directory should work");
-        let p2 = load_playlist(path).expect("Loading saved playlist should work");
-        assert_eq!(p1, p2);
-    }
-
-    #[test]
     fn edit_no_change() {
-        let c = EditConfig { amplify: None, file: None, random: None, playlist: String::from("") };
+        let c = EditConfig { volume: None, file: None, random: None, playlist: String::from("") };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
@@ -211,19 +186,19 @@ mod tests {
 
     #[test]
     fn valid_edit_amplify() {
-        let c = EditConfig { amplify: Some(10.0), file: None, random: None, playlist: String::from("") };
+        let c = EditConfig { volume: Some(10.0), file: None, random: None, playlist: String::from("") };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
 
         let mut p2 = Playlist::new();
-        p2.config.amplify = 10.0;
+        p2.config.volume = 10.0;
         assert_eq!(p1, p2)
     }
 
     #[test]
     fn valid_edit_add_file() {
-        let c = EditConfig { amplify: None, file: Some(String::from("test_data/test.mp3")), random: None, playlist: String::from("") };
+        let c = EditConfig { volume: None, file: Some(String::from("test_data/test.mp3")), random: None, playlist: String::from("") };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
@@ -235,7 +210,7 @@ mod tests {
 
     #[test]
     fn invalid_edit_add_file() -> Result<(), &'static str> {
-        let c = EditConfig { amplify: None, file: Some(String::from("invalid.mp3")), random: None, playlist: String::from("") };
+        let c = EditConfig { volume: None, file: Some(String::from("invalid.mp3")), random: None, playlist: String::from("") };
 
         let mut p1 = Playlist::new();
         match edit_playlist(&mut p1, c) {

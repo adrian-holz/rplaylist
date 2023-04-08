@@ -34,20 +34,20 @@ pub struct PlayConfig {
     pub repeat: bool,
     #[arg(long)]
     /// Overwrites playlist config
-    pub amplify: Option<f32>,
+    pub volume: Option<f32>,
 }
 
 
 #[derive(Args)]
 pub struct EditConfig {
-    /// Playlist to edit. Will create if not existing.
+    /// Playlist to edit. Will create a new one if not existing.
     pub playlist: String,
     #[arg(long)]
     /// Sound file or directory of sound files to add to playlist.
     pub file: Option<String>,
     #[arg(long)]
-    /// Acts multiplicative to the amplification of each song.
-    pub amplify: Option<f32>,
+    /// Acts multiplicative to the volume of each song.
+    pub volume: Option<f32>,
     #[arg(long, value_enum)]
     /// Unless songs are repeating 'on' and 'shuffle' act the same.
     pub random: Option<RandomMode>,
