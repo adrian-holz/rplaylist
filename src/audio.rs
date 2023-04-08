@@ -16,7 +16,7 @@ pub fn play(file: File, sink: &Sink, song_config: &SongConfig, global_config: &P
     let source = match source {
         Ok(s) => { s }
         Err(DecoderError::UnrecognizedFormat) => {
-            return Err(HandledError::new(String::from("Unrecognized Format, skipping.")));
+            return Err(HandledError(String::from("Unrecognized Format, skipping.")));
         }
         Err(e) => {
             eprintln!("Unknown Error: {}, skipping.", e);

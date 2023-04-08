@@ -20,21 +20,13 @@ mod file;
 
 #[derive(Debug)]
 ///Error was handled, we just need to display it now
-pub struct HandledError {
-    msg: String,
-}
-
-impl HandledError {
-    fn new(msg: String) -> HandledError {
-        HandledError { msg }
-    }
-}
+pub struct HandledError(pub String);
 
 impl Error for HandledError {}
 
 impl fmt::Display for HandledError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.msg)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -159,7 +151,7 @@ fn play_normal(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sin
         if state.lock().unwrap().stopped() {
             break;
         }
-        play_song(&tx, state, sink, song_index)?;
+        play_song(tx, state, sink, song_index)?;
     }
 
     Ok(())
@@ -184,7 +176,9 @@ fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink,
     }
     tx.send(ControlMessage::StreamUpdate).unwrap();
     let file = File::open(&song.path)?;
-    audio::play(file, sink, &song.config, &config)?;
+    if let Err(HandledError(msg)) = audio::play(file, sink, &song.config, &config) {
+        tx.send(ControlMessage::StreamError(msg)).unwrap();
+    }
     Ok(())
 }
 
