@@ -82,18 +82,18 @@ pub fn start(
 }
 
 ///Error occurred, stop program
-fn abort_playback(sink: &Sink, state: &Mutex<Playback>) {
+fn abort_playback(sink: &Sink, playback: &Mutex<Playback>) {
     {
-        state.lock().unwrap().control_error = true;
+        playback.lock().unwrap().control_error = true;
     }
-    stop_playback(sink, state);
+    stop_playback(sink, playback);
 }
 
 /// Stop program for whatever reason
 fn stop_playback(sink: &Sink, state: &Mutex<Playback>) {
-    let mut state = state.lock().unwrap();
-    state.stopping = true;
-    sink.skip_one(); // We know that there is always only one sound queued
+    let mut playback = state.lock().unwrap();
+    playback.stopping = true;
+    sink.clear();
 }
 
 fn run(mut state: ControlState, playback: &Mutex<Playback>, rx: Receiver<ControlMessage>) {
@@ -165,7 +165,8 @@ fn eval_key(
             adjust_volume(state, &mut playback.lock().unwrap(), false)?;
         }
         KeyCode::Right => {
-            state.sink.skip_one();
+            state.sink.clear();
+            state.sink.play();
         }
         KeyCode::Char('i') => {
             display_action(format!("{}", state.song_index).as_str(), state)?;
