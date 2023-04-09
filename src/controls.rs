@@ -1,19 +1,19 @@
-use std::{io, thread};
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, mpsc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
+use std::{io, thread};
 
-use crossterm::{ExecutableCommand, style::Print, terminal};
 use crossterm::cursor::MoveToColumn;
-use crossterm::event::{Event, KeyCode, KeyEvent, read};
+use crossterm::event::{read, Event, KeyCode, KeyEvent};
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::ClearType;
+use crossterm::{style::Print, terminal, ExecutableCommand};
 use rodio::Sink;
 
-use crate::{audio, file};
 use crate::playlist::Playlist;
+use crate::{audio, file};
 
 pub enum ControlMessage {
     StreamDone,
@@ -31,7 +31,12 @@ pub struct Playback {
 
 impl Playback {
     pub fn new(save_path: Option<PathBuf>, playlist: Playlist) -> Self {
-        Playback { save_path, playlist, stopping: false, control_error: false }
+        Playback {
+            save_path,
+            playlist,
+            stopping: false,
+            control_error: false,
+        }
     }
     pub fn stopped(&self) -> bool {
         self.stopping
@@ -54,7 +59,9 @@ impl ControlState {
     }
 }
 
-pub fn start(sink: &Arc<Sink>, playback: &Arc<Mutex<Playback>>) -> (JoinHandle<()>, Sender<ControlMessage>) {
+pub fn start(
+    sink: &Arc<Sink>, playback: &Arc<Mutex<Playback>>,
+) -> (JoinHandle<()>, Sender<ControlMessage>) {
     let playback2 = playback.clone();
     let (tx, rx) = mpsc::channel();
 
@@ -101,8 +108,10 @@ fn run(mut state: ControlState, playback: &Mutex<Playback>, rx: Receiver<Control
 
     terminal::disable_raw_mode().unwrap();
     io::stdout()
-        .execute(Print("\n")).unwrap()
-        .execute(MoveToColumn(0)).unwrap();
+        .execute(Print("\n"))
+        .unwrap()
+        .execute(MoveToColumn(0))
+        .unwrap();
 
     if let Err(e) = result {
         abort_playback(&state.sink, playback);
@@ -110,7 +119,9 @@ fn run(mut state: ControlState, playback: &Mutex<Playback>, rx: Receiver<Control
     }
 }
 
-fn control_loop(state: &mut ControlState, playback: &Mutex<Playback>, rx: Receiver<ControlMessage>) -> Result<(), Box<dyn Error>> {
+fn control_loop(
+    state: &mut ControlState, playback: &Mutex<Playback>, rx: Receiver<ControlMessage>,
+) -> Result<(), Box<dyn Error>> {
     print_help(state)?;
     state.last_out_was_action = false;
 
@@ -125,18 +136,27 @@ fn control_loop(state: &mut ControlState, playback: &Mutex<Playback>, rx: Receiv
             ControlMessage::StartSong(index) => {
                 let playback = playback.lock().unwrap();
                 state.song_index = index;
-                display_message(format!("Now playing {}", playback.playlist.song(index).unwrap()).as_str(), state)?;
+                display_message(
+                    format!("Now playing {}", playback.playlist.song(index).unwrap()).as_str(),
+                    state,
+                )?;
             }
-            ControlMessage::StreamError(e) => { display_error(e.as_str(), state)?; }
+            ControlMessage::StreamError(e) => {
+                display_error(e.as_str(), state)?;
+            }
         }
     }
     Ok(())
 }
 
-fn eval_key(state: &mut ControlState, playback: &Mutex<Playback>, event: KeyEvent) -> Result<(), Box<dyn Error>> {
+fn eval_key(
+    state: &mut ControlState, playback: &Mutex<Playback>, event: KeyEvent,
+) -> Result<(), Box<dyn Error>> {
     match event.code {
         KeyCode::Char('q') => stop_playback(&state.sink, playback),
-        KeyCode::Char('h') => { print_help(state)?; }
+        KeyCode::Char('h') => {
+            print_help(state)?;
+        }
         KeyCode::Char(' ') => toggle_pause(state)?,
         KeyCode::Up => {
             adjust_volume(state, &mut playback.lock().unwrap(), true)?;
@@ -158,7 +178,10 @@ fn eval_key(state: &mut ControlState, playback: &Mutex<Playback>, event: KeyEven
 }
 
 fn print_help(state: &mut ControlState) -> Result<(), io::Error> {
-    display_action("Exit: q, Help: h, Play/Pause: space, Volume: \u{2191}/\u{2193}, Next: \u{2192}, Save: s, Debug info: i", state)
+    display_action(
+        "Exit: q, Help: h, Play/Pause: space, Volume: \u{2191}/\u{2193}, Next: \u{2192}, Save: s, Debug info: i",
+        state,
+    )
 }
 
 fn toggle_pause(state: &mut ControlState) -> Result<(), io::Error> {
@@ -176,7 +199,10 @@ fn save(state: &mut ControlState, playback: &Mutex<Playback>) -> Result<(), Box<
     if let Some(path) = &playback.save_path {
         match file::save_playlist(&playback.playlist, path) {
             Err(e) => {
-                display_error(format!("Unable to save to {:?}, error: {}", path, e).as_str(), state)?;
+                display_error(
+                    format!("Unable to save to {:?}, error: {}", path, e).as_str(),
+                    state,
+                )?;
             }
             Ok(_) => {
                 display_action(format!("Successfully saved to {:?}", path).as_str(), state)?;
@@ -188,12 +214,16 @@ fn save(state: &mut ControlState, playback: &Mutex<Playback>) -> Result<(), Box<
     Ok(())
 }
 
-
 ///Not up means down
-fn adjust_volume(state: &mut ControlState, playback: &mut Playback, up: bool) -> Result<(), Box<dyn Error>> {
+fn adjust_volume(
+    state: &mut ControlState, playback: &mut Playback, up: bool,
+) -> Result<(), Box<dyn Error>> {
     let song = playback.playlist.song_mut(state.song_index).unwrap();
     song.config.volume = calc_new_volume(song.config.volume, up);
-    display_action(format!("Volume {:.0}%", song.config.volume * 100.0).as_str(), state)?;
+    display_action(
+        format!("Volume {:.0}%", song.config.volume * 100.0).as_str(),
+        state,
+    )?;
 
     let song = playback.playlist.song(state.song_index).unwrap();
     audio::config_sink(&state.sink, &song.config, &playback.playlist.config);
@@ -209,9 +239,7 @@ fn display_message(text: &str, state: &mut ControlState) -> Result<(), io::Error
     } else {
         stdout.execute(Print("\n"))?;
     }
-    stdout
-        .execute(MoveToColumn(0))?
-        .execute(Print(text))?;
+    stdout.execute(MoveToColumn(0))?.execute(Print(text))?;
 
     Ok(())
 }
@@ -238,10 +266,14 @@ fn calc_new_volume(mut vol: f32, up: bool) -> f32 {
     let max_vol = 3.0;
     if up {
         vol /= 1.0 - ratio;
-        if vol > max_vol { vol = max_vol }
+        if vol > max_vol {
+            vol = max_vol
+        }
     } else {
         vol *= 1.0 - ratio;
-        if vol < min_vol { vol = min_vol }
+        if vol < min_vol {
+            vol = min_vol
+        }
     }
     vol
 }

@@ -11,7 +11,7 @@ fn main() -> ExitCode {
     if true {
         if let Err(e) = rplaylist::run(cli) {
             eprintln!("{e}");
-            return ExitCode::from(1)
+            return ExitCode::from(1);
         }
     } else {
         rplaylist::run(cli).expect("The heck?");

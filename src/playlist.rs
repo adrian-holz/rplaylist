@@ -15,7 +15,10 @@ pub struct Playlist {
 
 impl Playlist {
     pub fn new() -> Playlist {
-        Playlist { config: PlaylistConfig::new(), songs: vec![] }
+        Playlist {
+            config: PlaylistConfig::new(),
+            songs: vec![],
+        }
     }
     pub fn song(&self, index: usize) -> Option<&Song> {
         self.songs.get(index)
@@ -58,7 +61,10 @@ pub struct Song {
 
 impl Song {
     pub fn new(path: PathBuf) -> Song {
-        Song { path, config: SongConfig::new() }
+        Song {
+            path,
+            config: SongConfig::new(),
+        }
     }
 }
 
@@ -95,7 +101,10 @@ pub struct PlaylistConfig {
 
 impl PlaylistConfig {
     pub fn new() -> PlaylistConfig {
-        PlaylistConfig { volume: 1.0, random: RandomMode::Off }
+        PlaylistConfig {
+            volume: 1.0,
+            random: RandomMode::Off,
+        }
     }
 }
 

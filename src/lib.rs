@@ -1,22 +1,22 @@
-use std::{error::Error, fmt};
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::{error::Error, fmt};
 
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use rodio::{OutputStream, Sink};
 
 use crate::config::{Cli, Command, EditConfig, PlayConfig, RandomMode};
 use crate::controls::{ControlMessage, Playback};
 use crate::playlist::Playlist;
 
-pub mod config;
 mod audio;
-mod playlist;
+pub mod config;
 mod controls;
 mod file;
+mod playlist;
 
 #[derive(Debug)]
 ///Error was handled, we just need to display it now.
@@ -76,11 +76,21 @@ fn play(c: &PlayConfig) -> Result<(), LibError> {
     // as Sink does not take ownership.
     let (_stream, stream_handle) = match OutputStream::try_default() {
         Ok(stream) => stream,
-        Err(e) => return Err(LibError(String::from("Unable to create audio stream"), Some(Box::new(e))))
+        Err(e) => {
+            return Err(LibError(
+                String::from("Unable to create audio stream"),
+                Some(Box::new(e)),
+            ));
+        }
     };
     let sink = match Sink::try_new(&stream_handle) {
         Ok(s) => s,
-        Err(e) => return Err(LibError(String::from("Unable to start audio stream"), Some(Box::new(e))))
+        Err(e) => {
+            return Err(LibError(
+                String::from("Unable to start audio stream"),
+                Some(Box::new(e)),
+            ));
+        }
     };
 
     let sink = Arc::new(sink);
@@ -92,7 +102,9 @@ fn play(c: &PlayConfig) -> Result<(), LibError> {
 
     // Tell the controls we are done and wait for it to clean up.
     let _ = tx.send(ControlMessage::StreamDone);
-    let result = handle.join().map_err(|_| LibError::new(String::from("Controls crashed")));
+    let result = handle
+        .join()
+        .map_err(|_| LibError::new(String::from("Controls crashed")));
 
     if result.is_ok() && state.lock().unwrap().control_error {
         return Err(LibError::new(String::from("Playback aborted")));
@@ -179,9 +191,11 @@ fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, 
                 tx.send(ControlMessage::StreamError(msg)).unwrap();
             }
         }
-        Err(_) => {
-            tx.send(ControlMessage::StreamError(String::from("Unable to open audio file"))).unwrap()
-        }
+        Err(_) => tx
+            .send(ControlMessage::StreamError(String::from(
+                "Unable to open audio file",
+            )))
+            .unwrap(),
     }
 }
 
@@ -195,7 +209,6 @@ fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), L
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::playlist::Song;
@@ -204,7 +217,12 @@ mod tests {
 
     #[test]
     fn edit_no_change() {
-        let c = EditConfig { volume: None, file: None, random: None, playlist: String::from("") };
+        let c = EditConfig {
+            volume: None,
+            file: None,
+            random: None,
+            playlist: String::from(""),
+        };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
@@ -214,7 +232,12 @@ mod tests {
 
     #[test]
     fn valid_edit_amplify() {
-        let c = EditConfig { volume: Some(10.0), file: None, random: None, playlist: String::from("") };
+        let c = EditConfig {
+            volume: Some(10.0),
+            file: None,
+            random: None,
+            playlist: String::from(""),
+        };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
@@ -226,24 +249,35 @@ mod tests {
 
     #[test]
     fn valid_edit_add_file() {
-        let c = EditConfig { volume: None, file: Some(String::from("test_data/test.mp3")), random: None, playlist: String::from("") };
+        let c = EditConfig {
+            volume: None,
+            file: Some(String::from("test_data/test.mp3")),
+            random: None,
+            playlist: String::from(""),
+        };
 
         let mut p1 = Playlist::new();
         edit_playlist(&mut p1, c).expect("Editing should give no error");
 
         let mut p2 = Playlist::new();
-        p2.add_song(Song::new(PathBuf::from("test_data/test.mp3"))).expect("Can always add a Song to an empty playlist");
+        p2.add_song(Song::new(PathBuf::from("test_data/test.mp3")))
+            .expect("Can always add a Song to an empty playlist");
         assert_eq!(p1, p2)
     }
 
     #[test]
     fn invalid_edit_add_file() -> Result<(), &'static str> {
-        let c = EditConfig { volume: None, file: Some(String::from("invalid.mp3")), random: None, playlist: String::from("") };
+        let c = EditConfig {
+            volume: None,
+            file: Some(String::from("invalid.mp3")),
+            random: None,
+            playlist: String::from(""),
+        };
 
         let mut p1 = Playlist::new();
         match edit_playlist(&mut p1, c) {
             Err(_) => Ok(()),
-            Ok(_) => Err("Invalid file should give error.")
+            Ok(_) => Err("Invalid file should give error."),
         }
     }
 }

@@ -1,10 +1,10 @@
-use std::{fs, io};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::{fs, io};
 
-use crate::LibError;
 use crate::playlist::{Playlist, Song};
+use crate::LibError;
 
 pub fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, LibError> {
     let songs = load_songs(path)?;
@@ -25,8 +25,10 @@ pub fn load_songs(path: &PathBuf) -> Result<Vec<Song>, LibError> {
         let songs = load_songs_from_directory(path);
         match songs {
             Ok(s) => Ok(s),
-            Err(e) => Err(LibError(String::from("Unable to read songs from directory"),
-                                   Some(Box::new(e))))
+            Err(e) => Err(LibError(
+                String::from("Unable to read songs from directory"),
+                Some(Box::new(e)),
+            )),
         }
     } else {
         Err(LibError::new(String::from("Expected file or directory")))
@@ -52,19 +54,27 @@ pub fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), LibError
 
     File::create(path)
         .and_then(|mut o| write!(o, "{}", playlist))
-        .or_else(|e| Err(LibError(String::from("Error writing playlist"), Some(Box::new(e)))))
+        .map_err(|e| LibError(String::from("Error writing playlist"), Some(Box::new(e))))
 }
 
 pub fn load_playlist(path: &PathBuf) -> Result<Playlist, LibError> {
     let data = fs::read_to_string(path);
     let data = match data {
         Ok(d) => d,
-        Err(e) => return Err(LibError(String::from("Error reading playlist"),
-                                      Some(Box::new(e))))
+        Err(e) => {
+            return Err(LibError(
+                String::from("Error reading playlist"),
+                Some(Box::new(e)),
+            ));
+        }
     };
 
-    serde_json::from_str(data.as_str())
-        .or_else(|e| Err(LibError(String::from("Error deserializing playlist"), Some(Box::new(e)))))
+    serde_json::from_str(data.as_str()).map_err(|e| {
+        LibError(
+            String::from("Error deserializing playlist"),
+            Some(Box::new(e)),
+        )
+    })
 }
 
 #[cfg(test)]

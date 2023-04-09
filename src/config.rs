@@ -1,8 +1,8 @@
 use std::fmt;
 use std::fmt::Formatter;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
@@ -36,7 +36,6 @@ pub struct PlayConfig {
     /// Overwrites playlist config
     pub volume: Option<f32>,
 }
-
 
 #[derive(Args)]
 pub struct EditConfig {

@@ -1,21 +1,25 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use rodio::{Decoder, Sink};
 use rodio::decoder::DecoderError;
+use rodio::{Decoder, Sink};
 
-use crate::LibError;
 use crate::playlist::{PlaylistConfig, SongConfig};
+use crate::LibError;
 
-pub fn play(file: File, sink: &Sink, song_config: &SongConfig, global_config: &PlaylistConfig) -> Result<(), LibError> {
+pub fn play(
+    file: File, sink: &Sink, song_config: &SongConfig, global_config: &PlaylistConfig,
+) -> Result<(), LibError> {
     let buf = BufReader::new(file);
 
     let source = Decoder::new(buf);
 
     let source = match source {
-        Ok(s) => { s }
+        Ok(s) => s,
         Err(DecoderError::UnrecognizedFormat) => {
-            return Err(LibError::new(String::from("Unrecognized Format, skipping.")));
+            return Err(LibError::new(String::from(
+                "Unrecognized Format, skipping.",
+            )));
         }
         Err(e) => {
             return Err(LibError::new(format!("Unknown Error: {e}, skipping.")));
