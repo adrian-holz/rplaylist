@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::fs;
+use std::{fs, io};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -7,51 +6,65 @@ use std::path::PathBuf;
 use crate::LibError;
 use crate::playlist::{Playlist, Song};
 
-pub fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
-    let songs = load_songs_from_directory(path)?;
+pub fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, LibError> {
+    let songs = load_songs(path)?;
 
     let mut p = Playlist::new();
     for song in songs {
         if let Err(e) = p.add_song(song) {
-            eprintln!("{}", e);
+            eprintln!("Error adding song: {e}");
         }
     }
     Ok(p)
 }
 
-pub fn load_songs_from_directory(path: &PathBuf) -> Result<Vec<Song>, Box<dyn Error>> {
+pub fn load_songs(path: &PathBuf) -> Result<Vec<Song>, LibError> {
     if path.is_file() {
         Ok(vec![Song::new(path.clone())])
     } else if path.is_dir() {
-        let mut songs = vec![];
-
-        let paths = path.read_dir()?;
-        for path in paths {
-            let p = path?.path();
-            if p.is_file() {
-                songs.push(Song::new(p))
-            }
+        let songs = load_songs_from_directory(path);
+        match songs {
+            Ok(s) => Ok(s),
+            Err(e) => Err(LibError(String::from("Unable to read songs from directory"),
+                                   Some(Box::new(e))))
         }
-
-        Ok(songs)
     } else {
-        Err(Box::new(LibError::new(String::from("Expected file or directory"))))
+        Err(LibError::new(String::from("Expected file or directory")))
     }
 }
 
-pub fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-    let playlist = serde_json::to_string(playlist)?;
+fn load_songs_from_directory(path: &PathBuf) -> Result<Vec<Song>, io::Error> {
+    let mut songs = vec![];
 
-    let mut output = File::create(path)?;
-    write!(output, "{}", playlist)?;
+    let paths = path.read_dir()?;
+    for path in paths {
+        let p = path?.path();
+        if p.is_file() {
+            songs.push(Song::new(p))
+        }
+    }
 
-    Ok(())
+    Ok(songs)
 }
 
-pub fn load_playlist(path: &PathBuf) -> Result<Playlist, Box<dyn Error>> {
-    let data = fs::read_to_string(path)?;
-    let p: Playlist = serde_json::from_str(data.as_str())?;
-    Ok(p)
+pub fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), LibError> {
+    let playlist = serde_json::to_string(playlist).unwrap();
+
+    File::create(path)
+        .and_then(|mut o| write!(o, "{}", playlist))
+        .or_else(|e| Err(LibError(String::from("Error writing playlist"), Some(Box::new(e)))))
+}
+
+pub fn load_playlist(path: &PathBuf) -> Result<Playlist, LibError> {
+    let data = fs::read_to_string(path);
+    let data = match data {
+        Ok(d) => d,
+        Err(e) => return Err(LibError(String::from("Error reading playlist"),
+                                      Some(Box::new(e))))
+    };
+
+    serde_json::from_str(data.as_str())
+        .or_else(|e| Err(LibError(String::from("Error deserializing playlist"), Some(Box::new(e)))))
 }
 
 #[cfg(test)]

@@ -20,11 +20,12 @@ pub struct PlayState {
     pub playlist: Playlist,
     pub song_idx: usize,
     stopping: bool,
+    pub control_error: bool,
 }
 
 impl PlayState {
     pub fn new(save_path: Option<PathBuf>, playlist: Playlist) -> Self {
-        PlayState { save_path, playlist, song_idx: 0, stopping: false }
+        PlayState { save_path, playlist, song_idx: 0, stopping: false, control_error: false }
     }
     pub fn stopped(&self) -> bool {
         self.stopping
@@ -39,20 +40,34 @@ pub enum ControlMessage {
 }
 
 pub fn start(sink: &Arc<Sink>, state: &Arc<Mutex<PlayState>>) -> (JoinHandle<()>, Sender<ControlMessage>) {
-    let sink = sink.clone();
-    let state = state.clone();
+    let sink2 = sink.clone();
+    let state2 = state.clone();
     let (tx, rx) = mpsc::channel();
 
     let handle = thread::spawn(move || {
-        run(&sink, &state, rx);
+        run(&sink2, &state2, rx);
     });
 
+    let sink2 = sink.clone();
+    let state2 = state.clone();
     let tx2 = tx.clone();
-    thread::spawn(move || read_keys(tx2));
+    thread::spawn(move || {
+        read_keys(tx2);
+        abort_playback(&sink2, &state2);
+    });
 
     (handle, tx)
 }
 
+///Error occurred, stop program
+fn abort_playback(sink: &Sink, state: &Mutex<PlayState>) {
+    {
+        state.lock().unwrap().control_error = true;
+    }
+    stop_playback(sink, state);
+}
+
+/// Stop program for whatever reason
 fn stop_playback(sink: &Sink, state: &Mutex<PlayState>) {
     let mut state = state.lock().unwrap();
     state.stopping = true;
@@ -62,7 +77,11 @@ fn stop_playback(sink: &Sink, state: &Mutex<PlayState>) {
 fn run(sink: &Sink, state: &Mutex<PlayState>, rx: Receiver<ControlMessage>) {
     //setting up stdout and going into raw mode
     let mut stdout = io::stdout();
-    terminal::enable_raw_mode().unwrap();
+    if let Err(e) = terminal::enable_raw_mode() {
+        eprintln!("Error enabling raw mode: {e}");
+        abort_playback(sink, state);
+        return;
+    }
 
     let result = control_loop(sink, state, rx, &mut stdout);
 
@@ -72,8 +91,8 @@ fn run(sink: &Sink, state: &Mutex<PlayState>, rx: Receiver<ControlMessage>) {
         .execute(MoveToColumn(0)).unwrap();
 
     if let Err(e) = result {
-        stop_playback(sink, state);
-        println!("Unexpected error: {}", e)
+        abort_playback(sink, state);
+        eprintln!("Unexpected error: {e}")
     }
 }
 
@@ -188,7 +207,10 @@ fn read_keys(rx: Sender<ControlMessage>) {
     loop {
         match read() {
             Ok(e) => rx.send(ControlMessage::InputEvent(e)).unwrap(),
-            Err(e) => eprintln!("{}", e), // TODO: better error handling
+            Err(e) => {
+                eprintln!("Error reading input: {e}");
+                return;
+            }
         }
     }
 }
