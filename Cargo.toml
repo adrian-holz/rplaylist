@@ -4,6 +4,11 @@ description = "Create and manage playlists of sound files."
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+panic = "abort"
+lto = true   # Enable link-time optimization
+strip = true # Strip symbols from binary
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
