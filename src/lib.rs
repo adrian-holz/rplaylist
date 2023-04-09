@@ -9,7 +9,7 @@ use rand::seq::SliceRandom;
 use rodio::{OutputStream, Sink};
 
 use crate::config::{Cli, Command, EditConfig, PlayConfig, RandomMode};
-use crate::controls::{ControlMessage, PlayState};
+use crate::controls::{ControlMessage, Playback};
 use crate::playlist::Playlist;
 
 pub mod config;
@@ -101,7 +101,7 @@ fn play(c: &PlayConfig) -> Result<(), LibError> {
     result
 }
 
-fn prepare_play(c: &PlayConfig) -> Result<PlayState, LibError> {
+fn prepare_play(c: &PlayConfig) -> Result<Playback, LibError> {
     let path = PathBuf::from(&c.file);
     let mut save_path = None;
     let mut p = if c.playlist {
@@ -116,10 +116,10 @@ fn prepare_play(c: &PlayConfig) -> Result<PlayState, LibError> {
     if p.song_count() == 0 {
         return Err(LibError::new(String::from("Playlist is empty")));
     }
-    Ok(PlayState::new(save_path, p))
+    Ok(Playback::new(save_path, p))
 }
 
-fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink, repeat: bool) {
+fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, repeat: bool) {
     if !repeat {
         play_normal(tx, state, sink);
     } else {
@@ -133,7 +133,7 @@ fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &S
     }
 }
 
-fn play_normal(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink) {
+fn play_normal(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink) {
     let order = {
         let playlist = &state.lock().unwrap().playlist;
         let mut order: Vec<usize> = (0..playlist.song_count()).collect();
@@ -154,7 +154,7 @@ fn play_normal(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sin
     }
 }
 
-fn play_true_random(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink) {
+fn play_true_random(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink) {
     let index = {
         let state = state.lock().unwrap();
         rand::thread_rng().gen_range(0..state.playlist.song_count())
@@ -162,16 +162,15 @@ fn play_true_random(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink:
     play_song(tx, state, sink, index);
 }
 
-fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<PlayState>, sink: &Sink, index: usize) {
+fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, index: usize) {
     let song;
     let config;
     {
-        let mut state = state.lock().unwrap();
-        state.song_idx = index;
+        let state = state.lock().unwrap();
         song = state.playlist.song(index).unwrap().clone();
         config = state.playlist.config.clone();
     }
-    tx.send(ControlMessage::StreamUpdate).unwrap();
+    tx.send(ControlMessage::StartSong(index)).unwrap();
 
     let file = File::open(&song.path);
     match file {
