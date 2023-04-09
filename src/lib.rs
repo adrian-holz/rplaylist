@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::{error::Error, fmt};
@@ -59,7 +59,7 @@ pub fn run(config: Cli) -> Result<(), LibError> {
 
 fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), LibError> {
     if let Some(f) = c.file {
-        add_file_to_playlist(p, &PathBuf::from(f))?;
+        add_file_to_playlist(p, Path::new(f.as_str()))?;
     }
     if let Some(a) = c.volume {
         p.config.volume = a;
@@ -199,7 +199,7 @@ fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, 
     }
 }
 
-fn add_file_to_playlist(playlist: &mut Playlist, file: &PathBuf) -> Result<(), LibError> {
+fn add_file_to_playlist(playlist: &mut Playlist, file: &Path) -> Result<(), LibError> {
     let songs = file::load_songs(file)?;
     for s in songs {
         if let Err(e) = playlist.add_song(s) {

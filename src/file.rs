@@ -1,12 +1,12 @@
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use crate::playlist::{Playlist, Song};
 use crate::LibError;
 
-pub fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, LibError> {
+pub fn make_playlist_from_path(path: &Path) -> Result<Playlist, LibError> {
     let songs = load_songs(path)?;
 
     let mut p = Playlist::new();
@@ -18,9 +18,9 @@ pub fn make_playlist_from_path(path: &PathBuf) -> Result<Playlist, LibError> {
     Ok(p)
 }
 
-pub fn load_songs(path: &PathBuf) -> Result<Vec<Song>, LibError> {
+pub fn load_songs(path: &Path) -> Result<Vec<Song>, LibError> {
     if path.is_file() {
-        Ok(vec![Song::new(path.clone())])
+        Ok(vec![Song::new(PathBuf::from(path))])
     } else if path.is_dir() {
         let songs = load_songs_from_directory(path);
         match songs {
@@ -35,7 +35,7 @@ pub fn load_songs(path: &PathBuf) -> Result<Vec<Song>, LibError> {
     }
 }
 
-fn load_songs_from_directory(path: &PathBuf) -> Result<Vec<Song>, io::Error> {
+fn load_songs_from_directory(path: &Path) -> Result<Vec<Song>, io::Error> {
     let mut songs = vec![];
 
     let paths = path.read_dir()?;
