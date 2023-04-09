@@ -221,7 +221,7 @@ fn add_file_to_playlist(playlist: &mut Playlist, file: &Path) -> Result<(), LibE
     let songs = file::load_songs(file)?;
     for s in songs {
         if let Err(e) = playlist.add_song(s) {
-            eprintln!("Error adding audio file: {e}");
+            eprintln!("{e}");
         }
     }
     Ok(())

@@ -137,7 +137,7 @@ fn control_loop(
                 let playback = playback.lock().unwrap();
                 state.song_index = index;
                 display_message(
-                    format!("Now playing {}", playback.playlist.song(index).unwrap()).as_str(),
+                    format!("Playing {}", playback.playlist.song(index).unwrap()).as_str(),
                     state,
                 )?;
             }
@@ -168,9 +168,6 @@ fn eval_key(
             state.sink.clear();
             state.sink.play();
         }
-        KeyCode::Char('i') => {
-            display_action(format!("{}", state.song_index).as_str(), state)?;
-        }
         KeyCode::Char('s') => save(state, playback)?,
         _ => (),
     }
@@ -180,7 +177,7 @@ fn eval_key(
 
 fn print_help(state: &mut ControlState) -> Result<(), io::Error> {
     display_action(
-        "Exit: q, Help: h, Play/Pause: space, Volume: \u{2191}/\u{2193}, Next: \u{2192}, Save: s, Debug info: i",
+        "Exit: q, Help: h, Play/Pause: space, Volume: \u{2191}/\u{2193}, Next: \u{2192}, Save: s",
         state,
     )
 }

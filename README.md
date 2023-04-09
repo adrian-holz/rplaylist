@@ -4,6 +4,7 @@ Create and manage playlists of sound files.
 
 ## Planned features
 In no particular order
+* Save on exit
 * Control options while playing
   * Delete
-  * Go back
+  * Show/Edit playlist settings
