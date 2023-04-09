@@ -33,6 +33,14 @@ pub fn play(
     Ok(())
 }
 
+///Can we decode this file? Does not necessarily mean we can play it to the end.
+pub fn valid_audio_file(file: File) -> bool {
+    let buf = BufReader::new(file);
+    let source = Decoder::new(buf);
+
+    source.is_ok()
+}
+
 pub fn config_sink(sink: &Sink, song_config: &SongConfig, global_config: &PlaylistConfig) {
     sink.set_volume(song_config.volume * global_config.volume);
 }

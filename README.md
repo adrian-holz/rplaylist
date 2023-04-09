@@ -7,4 +7,3 @@ In no particular order
 * Control options while playing
   * Delete
   * Go back
-* Don't add invalid files to playlist

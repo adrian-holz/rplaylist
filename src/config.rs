@@ -50,6 +50,9 @@ pub struct EditConfig {
     #[arg(long, value_enum)]
     /// Unless songs are repeating 'on' and 'shuffle' act the same.
     pub random: Option<RandomMode>,
+    #[arg(long)]
+    /// Remove invalid songs.
+    pub validate: bool,
 }
 
 #[derive(Args)]

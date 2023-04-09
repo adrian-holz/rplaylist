@@ -38,6 +38,12 @@ impl Playlist {
         self.songs.push(song);
         Ok(())
     }
+    pub fn validate_songs<F>(&mut self, f: F)
+    where
+        F: FnMut(&Song) -> bool,
+    {
+        self.songs.retain(f);
+    }
 }
 
 impl fmt::Display for Playlist {

@@ -45,8 +45,8 @@ pub fn run(config: Cli) -> Result<(), LibError> {
         Command::Play(c) => play(&c),
         Command::Edit(c) => {
             let path = &PathBuf::from(&c.playlist);
-            let mut p = file::load_playlist(path).unwrap_or_else(|_| Playlist::new());
-            edit_playlist(&mut p, c)?;
+            let p = file::load_playlist(path).unwrap_or_else(|_| Playlist::new());
+            let p = edit_playlist(p, c)?;
             file::save_playlist(&p, path)?;
             Ok(())
         }
@@ -57,9 +57,9 @@ pub fn run(config: Cli) -> Result<(), LibError> {
     }
 }
 
-fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), LibError> {
+fn edit_playlist(mut p: Playlist, c: EditConfig) -> Result<Playlist, LibError> {
     if let Some(f) = c.file {
-        add_file_to_playlist(p, Path::new(f.as_str()))?;
+        add_file_to_playlist(&mut p, Path::new(f.as_str()))?;
     }
     if let Some(a) = c.volume {
         p.config.volume = a;
@@ -67,7 +67,10 @@ fn edit_playlist(p: &mut Playlist, c: EditConfig) -> Result<(), LibError> {
     if let Some(r) = c.random {
         p.config.random = r;
     }
-    Ok(())
+    if c.validate {
+        p = validate_playlist(p)?;
+    }
+    Ok(p)
 }
 
 fn play(c: &PlayConfig) -> Result<(), LibError> {
@@ -199,11 +202,26 @@ fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, 
     }
 }
 
+fn validate_playlist(mut p: Playlist) -> Result<Playlist, LibError> {
+    p.validate_songs(|song| {
+        let file = File::open(&song.path);
+        let valid = match file {
+            Ok(f) => audio::valid_audio_file(f),
+            Err(_) => false,
+        };
+        if !valid {
+            eprintln!("Filtered invalid audio file: {song}");
+        }
+        valid
+    });
+    Ok(p)
+}
+
 fn add_file_to_playlist(playlist: &mut Playlist, file: &Path) -> Result<(), LibError> {
     let songs = file::load_songs(file)?;
     for s in songs {
         if let Err(e) = playlist.add_song(s) {
-            eprintln!("Error adding song: {e}");
+            eprintln!("Error adding audio file: {e}");
         }
     }
     Ok(())
@@ -222,10 +240,11 @@ mod tests {
             file: None,
             random: None,
             playlist: String::from(""),
+            validate: false,
         };
 
         let mut p1 = Playlist::new();
-        edit_playlist(&mut p1, c).expect("Editing should give no error");
+        p1 = edit_playlist(p1, c).expect("Editing should give no error");
 
         assert_eq!(p1, Playlist::new())
     }
@@ -237,10 +256,11 @@ mod tests {
             file: None,
             random: None,
             playlist: String::from(""),
+            validate: false,
         };
 
         let mut p1 = Playlist::new();
-        edit_playlist(&mut p1, c).expect("Editing should give no error");
+        p1 = edit_playlist(p1, c).expect("Editing should give no error");
 
         let mut p2 = Playlist::new();
         p2.config.volume = 10.0;
@@ -254,10 +274,11 @@ mod tests {
             file: Some(String::from("test_data/test.mp3")),
             random: None,
             playlist: String::from(""),
+            validate: false,
         };
 
         let mut p1 = Playlist::new();
-        edit_playlist(&mut p1, c).expect("Editing should give no error");
+        p1 = edit_playlist(p1, c).expect("Editing should give no error");
 
         let mut p2 = Playlist::new();
         p2.add_song(Song::new(PathBuf::from("test_data/test.mp3")))
@@ -272,12 +293,61 @@ mod tests {
             file: Some(String::from("invalid.mp3")),
             random: None,
             playlist: String::from(""),
+            validate: false,
         };
 
-        let mut p1 = Playlist::new();
-        match edit_playlist(&mut p1, c) {
+        let p1 = Playlist::new();
+        match edit_playlist(p1, c) {
             Err(_) => Ok(()),
             Ok(_) => Err("Invalid file should give error."),
         }
+    }
+
+    #[test]
+    fn filter_invalid_not_existing() {
+        let c = EditConfig {
+            volume: None,
+            file: None,
+            random: None,
+            playlist: String::from(""),
+            validate: true,
+        };
+        let mut p = Playlist::new();
+        p.add_song(Song::new(PathBuf::from("file.invalid")))
+            .unwrap();
+        p = edit_playlist(p, c).expect("Editing should give no error");
+        assert_eq!(p.song_count(), 0);
+    }
+
+    #[test]
+    fn filter_invalid_not_audio() {
+        let c = EditConfig {
+            volume: None,
+            file: None,
+            random: None,
+            playlist: String::from(""),
+            validate: true,
+        };
+        let mut p = Playlist::new();
+        p.add_song(Song::new(PathBuf::from("test_data/empty.playlist")))
+            .unwrap();
+        p = edit_playlist(p, c).expect("Editing should give no error");
+        assert_eq!(p.song_count(), 0);
+    }
+
+    #[test]
+    fn filter_invalid_valid() {
+        let c = EditConfig {
+            volume: None,
+            file: None,
+            random: None,
+            playlist: String::from(""),
+            validate: true,
+        };
+        let mut p = Playlist::new();
+        p.add_song(Song::new(PathBuf::from("test_data/test.mp3")))
+            .unwrap();
+        p = edit_playlist(p, c).expect("Editing should give no error");
+        assert_eq!(p.song_count(), 1);
     }
 }
