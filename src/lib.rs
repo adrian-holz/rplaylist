@@ -1,3 +1,4 @@
+#![deny(clippy::pedantic)]
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -8,7 +9,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rodio::{OutputStream, Sink};
 
-use crate::config::{Cli, Command, EditConfig, PlayConfig, RandomMode};
+use crate::config::{Cli, Command, EditCommand, PlayCommand, RandomMode};
 use crate::controls::{ControlMessage, Playback};
 use crate::playlist::Playlist;
 
@@ -40,6 +41,7 @@ impl fmt::Display for LibError {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub fn run(config: Cli) -> Result<(), LibError> {
     match config.command {
         Command::Play(c) => play(&c),
@@ -57,7 +59,7 @@ pub fn run(config: Cli) -> Result<(), LibError> {
     }
 }
 
-fn edit_playlist(mut p: Playlist, c: EditConfig) -> Result<Playlist, LibError> {
+fn edit_playlist(mut p: Playlist, c: EditCommand) -> Result<Playlist, LibError> {
     if let Some(f) = c.file {
         add_file_to_playlist(&mut p, Path::new(f.as_str()))?;
     }
@@ -68,12 +70,12 @@ fn edit_playlist(mut p: Playlist, c: EditConfig) -> Result<Playlist, LibError> {
         p.config.random = r;
     }
     if c.validate {
-        p = validate_playlist(p)?;
+        p = validate_playlist(p);
     }
     Ok(p)
 }
 
-fn play(c: &PlayConfig) -> Result<(), LibError> {
+fn play(c: &PlayCommand) -> Result<(), LibError> {
     let state = prepare_play(c)?;
     // These need to be created here so they won't be dropped until we are done playing,
     // as Sink does not take ownership.
@@ -116,7 +118,7 @@ fn play(c: &PlayConfig) -> Result<(), LibError> {
     result
 }
 
-fn prepare_play(c: &PlayConfig) -> Result<Playback, LibError> {
+fn prepare_play(c: &PlayCommand) -> Result<Playback, LibError> {
     let path = PathBuf::from(&c.file);
     let mut save_path = None;
     let mut p = if c.playlist {
@@ -135,9 +137,7 @@ fn prepare_play(c: &PlayConfig) -> Result<Playback, LibError> {
 }
 
 fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, repeat: bool) {
-    if !repeat {
-        play_normal(tx, state, sink);
-    } else {
+    if repeat {
         while !state.lock().unwrap().stopped() {
             if state.lock().unwrap().playlist.config.random == RandomMode::True {
                 play_true_random(tx, state, sink);
@@ -145,6 +145,8 @@ fn play_playlist(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Si
                 play_normal(tx, state, sink);
             }
         }
+    } else {
+        play_normal(tx, state, sink);
     }
 }
 
@@ -202,7 +204,7 @@ fn play_song(tx: &Sender<ControlMessage>, state: &Mutex<Playback>, sink: &Sink, 
     }
 }
 
-fn validate_playlist(mut p: Playlist) -> Result<Playlist, LibError> {
+fn validate_playlist(mut p: Playlist) -> Playlist {
     p.validate_songs(|song| {
         let file = File::open(&song.path);
         let valid = match file {
@@ -214,7 +216,7 @@ fn validate_playlist(mut p: Playlist) -> Result<Playlist, LibError> {
         }
         valid
     });
-    Ok(p)
+    p
 }
 
 fn add_file_to_playlist(playlist: &mut Playlist, file: &Path) -> Result<(), LibError> {
@@ -235,27 +237,27 @@ mod tests {
 
     #[test]
     fn edit_no_change() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: None,
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: false,
         };
 
         let mut p1 = Playlist::new();
         p1 = edit_playlist(p1, c).expect("Editing should give no error");
 
-        assert_eq!(p1, Playlist::new())
+        assert_eq!(p1, Playlist::new());
     }
 
     #[test]
     fn valid_edit_amplify() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: Some(10.0),
             file: None,
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: false,
         };
 
@@ -264,16 +266,16 @@ mod tests {
 
         let mut p2 = Playlist::new();
         p2.config.volume = 10.0;
-        assert_eq!(p1, p2)
+        assert_eq!(p1, p2);
     }
 
     #[test]
     fn valid_edit_add_file() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: Some(String::from("test_data/test.mp3")),
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: false,
         };
 
@@ -283,16 +285,16 @@ mod tests {
         let mut p2 = Playlist::new();
         p2.add_song(Song::new(PathBuf::from("test_data/test.mp3")))
             .expect("Can always add a Song to an empty playlist");
-        assert_eq!(p1, p2)
+        assert_eq!(p1, p2);
     }
 
     #[test]
     fn invalid_edit_add_file() -> Result<(), &'static str> {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: Some(String::from("invalid.mp3")),
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: false,
         };
 
@@ -305,11 +307,11 @@ mod tests {
 
     #[test]
     fn filter_invalid_not_existing() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: None,
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: true,
         };
         let mut p = Playlist::new();
@@ -321,11 +323,11 @@ mod tests {
 
     #[test]
     fn filter_invalid_not_audio() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: None,
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: true,
         };
         let mut p = Playlist::new();
@@ -337,11 +339,11 @@ mod tests {
 
     #[test]
     fn filter_invalid_valid() {
-        let c = EditConfig {
+        let c = EditCommand {
             volume: None,
             file: None,
             random: None,
-            playlist: String::from(""),
+            playlist: String::new(),
             validate: true,
         };
         let mut p = Playlist::new();

@@ -16,14 +16,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Play sound files or playlist
-    Play(PlayConfig),
+    Play(PlayCommand),
     /// Edit or create a playlist
-    Edit(EditConfig),
-    Display(DisplayConfig),
+    Edit(EditCommand),
+    Display(DisplayCommand),
 }
 
 #[derive(Args)]
-pub struct PlayConfig {
+pub struct PlayCommand {
     /// Sound file or directory of sound files
     pub file: String,
     #[arg(short, long)]
@@ -38,7 +38,7 @@ pub struct PlayConfig {
 }
 
 #[derive(Args)]
-pub struct EditConfig {
+pub struct EditCommand {
     /// Playlist to edit. Will create a new one if not existing.
     pub playlist: String,
     #[arg(long)]
@@ -56,7 +56,7 @@ pub struct EditConfig {
 }
 
 #[derive(Args)]
-pub struct DisplayConfig {
+pub struct DisplayCommand {
     pub playlist: String,
 }
 

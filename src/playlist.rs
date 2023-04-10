@@ -51,8 +51,8 @@ impl fmt::Display for Playlist {
         write!(f, "  Settings:")?;
         write!(f, "\n{}", self.config)?;
         write!(f, "\n  Songs:")?;
-        for s in self.songs.iter() {
-            write!(f, "\n{}", s)?
+        for s in &self.songs {
+            write!(f, "\n{s}")?;
         }
         Ok(())
     }
@@ -78,7 +78,7 @@ impl fmt::Display for Song {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Some(s) = self.path.file_name() {
             if let Some(s) = s.to_str() {
-                return write!(f, "{:}", s);
+                return write!(f, "{s:}");
             }
         }
         // If we can't print only the file name, just print everything
@@ -100,6 +100,7 @@ impl SongConfig {
 
 #[derive(Debug, PartialEq, Clone)]
 #[derive(Serialize, Deserialize)]
+#[allow(clippy::module_name_repetitions)]
 pub struct PlaylistConfig {
     pub volume: f32,
     pub random: RandomMode,

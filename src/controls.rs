@@ -74,7 +74,7 @@ pub fn start(
     let playback2 = playback.clone();
     let tx2 = tx.clone();
     thread::spawn(move || {
-        read_keys(tx2);
+        read_keys(&tx2);
         abort_playback(&sink2, &playback2);
     });
 
@@ -115,7 +115,7 @@ fn run(mut state: ControlState, playback: &Mutex<Playback>, rx: Receiver<Control
 
     if let Err(e) = result {
         abort_playback(&state.sink, playback);
-        eprintln!("Unexpected error: {e}")
+        eprintln!("Unexpected error: {e}");
     }
 }
 
@@ -125,12 +125,12 @@ fn control_loop(
     print_help(state)?;
     state.last_out_was_action = false;
 
-    for c in rx.into_iter() {
+    for c in rx {
         match c {
             ControlMessage::StreamDone => break,
             ControlMessage::InputEvent(e) => {
                 if let Event::Key(event) = e {
-                    eval_key(state, playback, event)?
+                    eval_key(state, playback, event)?;
                 }
             }
             ControlMessage::StartSong(index) => {
@@ -198,12 +198,12 @@ fn save(state: &mut ControlState, playback: &Mutex<Playback>) -> Result<(), Box<
         match file::save_playlist(&playback.playlist, path) {
             Err(e) => {
                 display_error(
-                    format!("Unable to save to {:?}, error: {}", path, e).as_str(),
+                    format!("Unable to save to {path:?}, error: {e}").as_str(),
                     state,
                 )?;
             }
             Ok(_) => {
-                display_action(format!("Successfully saved to {:?}", path).as_str(), state)?;
+                display_action(format!("Successfully saved to {path:?}").as_str(), state)?;
             }
         }
     } else {
@@ -249,7 +249,7 @@ fn display_action(text: &str, state: &mut ControlState) -> Result<(), io::Error>
     Ok(())
 }
 
-///Error variant for display_error
+///Error variant for `display_message`
 fn display_error(text: &str, state: &mut ControlState) -> Result<(), io::Error> {
     let mut stdout = io::stdout();
     stdout.execute(SetForegroundColor(Color::DarkRed))?;
@@ -265,18 +265,18 @@ fn calc_new_volume(mut vol: f32, up: bool) -> f32 {
     if up {
         vol /= 1.0 - ratio;
         if vol > max_vol {
-            vol = max_vol
+            vol = max_vol;
         }
     } else {
         vol *= 1.0 - ratio;
         if vol < min_vol {
-            vol = min_vol
+            vol = min_vol;
         }
     }
     vol
 }
 
-fn read_keys(rx: Sender<ControlMessage>) {
+fn read_keys(rx: &Sender<ControlMessage>) {
     loop {
         match read() {
             Ok(e) => rx.send(ControlMessage::InputEvent(e)).unwrap(),

@@ -42,7 +42,7 @@ fn load_songs_from_directory(path: &Path) -> Result<Vec<Song>, io::Error> {
     for path in paths {
         let p = path?.path();
         if p.is_file() {
-            songs.push(Song::new(p))
+            songs.push(Song::new(p));
         }
     }
 
@@ -53,7 +53,7 @@ pub fn save_playlist(playlist: &Playlist, path: &PathBuf) -> Result<(), LibError
     let playlist = serde_json::to_string(playlist).unwrap();
 
     File::create(path)
-        .and_then(|mut o| write!(o, "{}", playlist))
+        .and_then(|mut o| write!(o, "{playlist}"))
         .map_err(|e| LibError(String::from("Error writing playlist"), Some(Box::new(e))))
 }
 
