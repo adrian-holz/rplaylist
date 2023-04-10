@@ -1,7 +1,8 @@
 [package]
 name = "rplaylist"
 description = "Create and manage playlists of sound files."
-version = "0.1.0"
+version = "1.0.0"
+license = "MIT OR Apache-2.0"
 edition = "2021"
 
 [profile.release]
